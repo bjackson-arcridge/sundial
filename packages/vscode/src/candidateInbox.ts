@@ -70,13 +70,47 @@ export async function discoverSundialRoot(startDirectory: string): Promise<strin
 	}
 }
 
+/** Resolve memory paths while keeping sundial/config.json as the discovery anchor. */
+export async function resolveStoreDirectory(projectRoot: string): Promise<string> {
+	const configPath = path.join(projectRoot, storeDirectoryName, 'config.json');
+	let config: unknown;
+	try {
+		config = JSON.parse(await fs.readFile(configPath, 'utf8'));
+	} catch (error) {
+		if (isNodeError(error) && error.code === 'ENOENT') {
+			return path.join(projectRoot, storeDirectoryName);
+		}
+		throw error;
+	}
+	if (config === null || typeof config !== 'object' || Array.isArray(config)) {
+		throw new Error(`Sundial config must be a JSON object: ${configPath}`);
+	}
+	const value = (config as Record<string, unknown>).store;
+	if (value === undefined) {
+		return path.join(projectRoot, storeDirectoryName);
+	}
+	if (typeof value !== 'string') {
+		throw new Error('Sundial config store must be a string.');
+	}
+	const trimmed = value.trim();
+	if (trimmed.length === 0) {
+		throw new Error('Sundial store must not be empty.');
+	}
+	const portable = trimmed.replace(/\\/g, '/');
+	const normalized = path.posix.normalize(portable);
+	if (path.isAbsolute(trimmed) || path.win32.isAbsolute(trimmed) || path.posix.isAbsolute(portable) || normalized === '..' || normalized.startsWith('../')) {
+		throw new Error('Sundial store must be a relative path inside the project root.');
+	}
+	return path.join(projectRoot, ...normalized.split('/'));
+}
+
 export async function listCandidateSummaries(workspaceRoot: string): Promise<readonly CandidateSummary[]> {
 	const storeRoot = await discoverSundialRoot(workspaceRoot);
 	if (storeRoot === undefined) {
 		return [];
 	}
 
-	const records = await listMarkdownRecords(path.join(storeRoot, storeDirectoryName, 'decisions', 'candidates'), summarizeCandidate);
+	const records = await listMarkdownRecords(path.join(await resolveStoreDirectory(storeRoot), 'decisions', 'candidates'), summarizeCandidate);
 	return [...records].sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -89,7 +123,7 @@ export async function listDecisionRecordSummaries(
 		return [];
 	}
 
-	const records = await listMarkdownRecords(path.join(storeRoot, storeDirectoryName, 'decisions', status), summarizeDecisionRecord);
+	const records = await listMarkdownRecords(path.join(await resolveStoreDirectory(storeRoot), 'decisions', status), summarizeDecisionRecord);
 	return [...records].sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -99,7 +133,7 @@ export async function listResearchSummaries(workspaceRoot: string): Promise<read
 		return [];
 	}
 
-	const records = await listMarkdownRecords(path.join(storeRoot, storeDirectoryName, 'research'), summarizeResearch);
+	const records = await listMarkdownRecords(path.join(await resolveStoreDirectory(storeRoot), 'research'), summarizeResearch);
 	return [...records].sort((left, right) => left.id.localeCompare(right.id));
 }
 
@@ -109,7 +143,7 @@ export async function listSpecSummaries(workspaceRoot: string): Promise<readonly
 		return [];
 	}
 
-	const records = await listMarkdownRecords(path.join(storeRoot, storeDirectoryName, 'specs'), summarizeSpec);
+	const records = await listMarkdownRecords(path.join(await resolveStoreDirectory(storeRoot), 'specs'), summarizeSpec);
 	return [...records]
 		.filter(record => path.basename(record.filePath).toLowerCase() !== 'board.md')
 		.sort((left, right) => left.id.localeCompare(right.id));
@@ -161,7 +195,7 @@ async function listSpecWorkflow(workspaceRoot: string): Promise<SpecWorkflow> {
 		return defaultWorkflowStatuses();
 	}
 
-	const workflowPath = path.join(storeRoot, storeDirectoryName, 'specs', 'workflow.yml');
+	const workflowPath = path.join(await resolveStoreDirectory(storeRoot), 'specs', 'workflow.yml');
 	let contents: string;
 	try {
 		contents = await fs.readFile(workflowPath, 'utf8');
@@ -183,7 +217,7 @@ export async function listKnownDomains(workspaceRoot: string): Promise<readonly 
 		return [];
 	}
 
-	const domainsPath = path.join(storeRoot, storeDirectoryName, 'domains.md');
+	const domainsPath = path.join(await resolveStoreDirectory(storeRoot), 'domains.md');
 	let markdown: string;
 
 	try {

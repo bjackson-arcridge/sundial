@@ -2,6 +2,8 @@
 
 Sundial is the tool used to manage all persistent memory and decisions for this project.
 
+Read `sundial/config.json` from the project root to locate the memory store: `store` is a project-relative path, defaulting to `sundial`. `folder` independently controls agent asset installation. The CLI resolves memory paths from `store`; changing the setting does not move existing files.
+
 1. Run `sundial domains` to get the list of known domains.
 2. Select all relevant domains for the task.
 3. Retrieve accepted DRs with one call: `sundial dr retrieve [--domain <domain>]...`.

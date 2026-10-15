@@ -11,12 +11,12 @@ references:
   - CLI_SPEC.md
   - packages/cli/src/main.ts
   - packages/vscode/src/extension.ts
-updated: 2026-07-07
+updated: 2026-10-14
 author: bjackson
 ---
 ## Decision
 
-Keep Sundial workflow and lifecycle mutations in the sundial CLI over the hand-editable `sundial/` store; editor, MCP, CI, VS Code, and agent adapters delegate logical state-changing operations to the CLI. Direct markdown edits remain appropriate for human or LLM-authored document bodies where the model is intentionally filling in the artifact from its template.
+Keep Sundial workflow and lifecycle mutations in the sundial CLI over the hand-editable configured store; editor, MCP, CI, VS Code, and agent adapters delegate logical state-changing operations to the CLI. Direct markdown edits remain appropriate for human or LLM-authored document bodies where the model is intentionally filling in the artifact from its template.
 
 ## Pitfalls
 

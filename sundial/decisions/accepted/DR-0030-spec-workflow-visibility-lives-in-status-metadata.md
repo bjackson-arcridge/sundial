@@ -6,9 +6,9 @@ domain: cli
 created: 2026-07-07
 references:
   - sundial/specs/workflow.yml
-updated: 2026-07-07
+updated: 2026-10-14
 author: bjackson
 ---
 ## Decision
 
-Configure spec workflow states as ordered statuses in sundial/specs/workflow.yml;
+Configure spec workflow states as ordered statuses in specs/workflow.yml under the configured store;

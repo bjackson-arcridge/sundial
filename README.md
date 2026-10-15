@@ -90,14 +90,14 @@ sundial candidate retire CAND-0001
 sundial candidate dismiss CAND-0001
 ```
 
-`init` always creates `sundial/`, starter domains, and `sundial/SUNDIAL-INSTRUCTIONS.md`. Agent-specific skills are opt-in:
+`init` creates starter domains and `SUNDIAL-INSTRUCTIONS.md` in the configured store, which defaults to `sundial/`. Set `store` in the project-root `sundial/config.json` to use another project-relative directory, such as `docs`. The config stays at that fixed discovery location; existing files must be moved separately. Agent-specific skills are opt-in:
 
 - `--claude` writes missing Claude Code skills to `.claude/skills/` from CLI templates.
 - `--codex` writes missing Codex skills to `.agents/skills/` from CLI templates.
 - Pass both flags to install both agent integrations.
-- Pass `--folder docs` to keep the store at `/path/to/project/sundial` while installing runtime assets under `/path/to/project/docs`.
+- Pass `--folder app` to install agent assets under `/path/to/project/app` while keeping the configured store location.
 
-Use `sundial update --claude --codex` to refresh installed generated files later without rerunning store initialization. The update command discovers the nearest ancestor `sundial` store by default; pass `--root /path/to/project` to target a specific project, or `--folder docs` to change the configured target folder. It refreshes `sundial/SUNDIAL-INSTRUCTIONS.md`; selected harness updates also remove legacy Sundial-managed blocks from `AGENTS.md` or `.claude/CLAUDE.md` while preserving user-authored content.
+Use `sundial update --claude --codex` to refresh installed generated files later without rerunning store initialization. The update command discovers the nearest ancestor `sundial` configuration directory by default; pass `--root /path/to/project` to target a specific project, or `--folder app` to change the agent assets folder independently of the store. It refreshes the store's `SUNDIAL-INSTRUCTIONS.md`; selected harness updates also remove legacy Sundial-managed blocks from `AGENTS.md` or `.claude/CLAUDE.md` while preserving user-authored content.
 
 ## VS Code
 
@@ -107,5 +107,5 @@ The extension contributes a `Sundial` activity bar view with a Candidate Inbox a
 
 - Enabled accepted DRs are the only precedent retrieved by `dr retrieve`.
 - Repeat `--domain` on one `dr retrieve` call to retrieve all relevant domain branches together.
-- Candidate DRs can include a proposed domain with a description; accepting the DR appends that proposal to `sundial/domains.md`.
+- Candidate DRs can include a proposed domain with a description; accepting the DR appends that proposal to the store's `domains.md`.
 - DRs can include a `## Appendix` section for human-facing explanatory context; short and medium retrieval omit it.

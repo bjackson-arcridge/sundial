@@ -85,10 +85,10 @@ export interface InitOptions {
 	readonly folder?: string;
 }
 
-export function getStorePaths(projectRoot: string, folder: string = defaultStoreFolder): StorePaths {
+export function getStorePaths(projectRoot: string, folder: string = defaultStoreFolder, storeFolder: string = storeDirectoryName): StorePaths {
 	const root = path.resolve(projectRoot);
 	const normalizedFolder = normalizeStoreFolder(folder);
-	const store = path.join(root, storeDirectoryName);
+	const store = path.join(root, ...normalizeProjectPath(storeFolder, 'store').split('/'));
 	const targetRoot = normalizedFolder === defaultStoreFolder
 		? root
 		: path.join(root, ...normalizedFolder.split('/'));
@@ -98,7 +98,7 @@ export function getStorePaths(projectRoot: string, folder: string = defaultStore
 		store,
 		folder: normalizedFolder,
 		targetRoot,
-		config: path.join(store, 'config.json'),
+		config: path.join(root, storeDirectoryName, 'config.json'),
 		domains: path.join(store, 'domains.md'),
 		docs: path.join(store, 'docs'),
 	};
@@ -106,8 +106,8 @@ export function getStorePaths(projectRoot: string, folder: string = defaultStore
 
 export async function loadStorePaths(projectRoot: string): Promise<StorePaths> {
 	const paths = getStorePaths(projectRoot);
-	const folder = await readConfiguredStoreFolder(paths.config);
-	return getStorePaths(projectRoot, folder);
+	const config = await readStoreConfig(paths.config);
+	return getStorePaths(projectRoot, configuredPath(config, 'folder', defaultStoreFolder), configuredPath(config, 'store', storeDirectoryName));
 }
 
 export async function discoverStore(startDirectory: string): Promise<StorePaths | undefined> {
@@ -129,9 +129,10 @@ export async function discoverStore(startDirectory: string): Promise<StorePaths 
 }
 
 export async function initStore(projectRoot: string, options: InitOptions = {}): Promise<InitResult> {
-	const basePaths = getStorePaths(projectRoot);
-	const folder = options.folder ?? await readConfiguredStoreFolder(basePaths.config);
-	const paths = getStorePaths(projectRoot, folder);
+	const basePaths = await loadStorePaths(projectRoot);
+	const paths = options.folder === undefined
+		? basePaths
+		: getStorePaths(projectRoot, options.folder, formatRelative(basePaths.root, basePaths.store));
 	const created: string[] = [];
 	const existing: string[] = [];
 	const updated: string[] = [];
@@ -152,11 +153,11 @@ export async function initStore(projectRoot: string, options: InitOptions = {}):
 	}
 
 	for (const [relativeFile, templatePath] of storeTemplateFiles) {
-		await ensureFile(path.join(paths.store, relativeFile), await renderTemplate(templatePath), created, existing, paths.root);
+		await ensureFile(path.join(paths.store, relativeFile), await renderStoreTemplate(templatePath, paths), created, existing, paths.root);
 	}
 
 	for (const [relativeFile, templatePath] of managedStoreTemplateFiles) {
-		await ensureFile(path.join(paths.store, relativeFile), await renderTemplate(templatePath), created, existing, paths.root);
+		await ensureFile(path.join(paths.store, relativeFile), await renderStoreTemplate(templatePath, paths), created, existing, paths.root);
 	}
 
 	await ensureConfig(paths, options.folder !== undefined, created, existing, updated);
@@ -175,7 +176,7 @@ export async function updateRuntimeAssets(projectRoot: string, options: InitOpti
 	const basePaths = await loadStorePaths(projectRoot);
 	const paths = options.folder === undefined
 		? basePaths
-		: getStorePaths(projectRoot, options.folder);
+		: getStorePaths(projectRoot, options.folder, formatRelative(basePaths.root, basePaths.store));
 	const created: string[] = [];
 	const existing: string[] = [];
 	const updated: string[] = [];
@@ -187,10 +188,10 @@ export async function updateRuntimeAssets(projectRoot: string, options: InitOpti
 		await ensureFile(path.join(paths.store, relativeFile), contents, created, existing, paths.root);
 	}
 	for (const [relativeFile, templatePath] of storeTemplateFiles) {
-		await ensureFile(path.join(paths.store, relativeFile), await renderTemplate(templatePath), created, existing, paths.root);
+		await ensureFile(path.join(paths.store, relativeFile), await renderStoreTemplate(templatePath, paths), created, existing, paths.root);
 	}
 	for (const [relativeFile, templatePath] of managedStoreTemplateFiles) {
-		await updateFile(path.join(paths.store, relativeFile), await renderTemplate(templatePath), created, existing, updated, paths.root);
+		await updateFile(path.join(paths.store, relativeFile), await renderStoreTemplate(templatePath, paths), created, existing, updated, paths.root);
 	}
 
 	await ensureConfig(paths, options.folder !== undefined, created, existing, updated);
@@ -286,7 +287,7 @@ async function ensureConfig(
 ): Promise<void> {
 	if (!await pathExists(paths.config)) {
 		await fs.mkdir(path.dirname(paths.config), { recursive: true });
-		await fs.writeFile(paths.config, defaultConfig(paths.folder), 'utf8');
+		await fs.writeFile(paths.config, defaultConfig(paths), 'utf8');
 		created.push(formatRelative(paths.root, paths.config));
 		return;
 	}
@@ -301,7 +302,7 @@ async function ensureConfig(
 	const next = `${JSON.stringify({
 		...currentConfig,
 		version: 1,
-		store: storeDirectoryName,
+		store: formatRelative(paths.root, paths.store),
 		folder: paths.folder,
 	}, undefined, 2)}\n`;
 	if (current === next) {
@@ -313,26 +314,26 @@ async function ensureConfig(
 	updated.push(formatRelative(paths.root, paths.config));
 }
 
-async function readConfiguredStoreFolder(configPath: string): Promise<string> {
+async function readStoreConfig(configPath: string): Promise<Record<string, unknown>> {
 	try {
-		const config = parseStoreConfig(await fs.readFile(configPath, 'utf8'), configPath);
-		const folder = config.folder;
-		if (folder === undefined) {
-			return defaultStoreFolder;
-		}
-
-		if (typeof folder !== 'string') {
-			throw new Error(`Sundial config folder must be a string: ${configPath}`);
-		}
-
-		return normalizeStoreFolder(folder);
+		return parseStoreConfig(await fs.readFile(configPath, 'utf8'), configPath);
 	} catch (error) {
 		if (isNodeError(error) && error.code === 'ENOENT') {
-			return defaultStoreFolder;
+			return {};
 		}
-
 		throw error;
 	}
+}
+
+function configuredPath(config: Record<string, unknown>, key: 'folder' | 'store', fallback: string): string {
+	const value = config[key];
+	if (value === undefined) {
+		return fallback;
+	}
+	if (typeof value !== 'string') {
+		throw new Error(`Sundial config ${key} must be a string.`);
+	}
+	return normalizeProjectPath(value, key);
 }
 
 function parseStoreConfig(contents: string, configPath: string): Record<string, unknown> {
@@ -345,25 +346,29 @@ function parseStoreConfig(contents: string, configPath: string): Record<string, 
 }
 
 function normalizeStoreFolder(folder: string): string {
-	const value = folder.trim();
+	return normalizeProjectPath(folder, 'folder');
+}
+
+function normalizeProjectPath(input: string, key: 'folder' | 'store'): string {
+	const value = input.trim();
 	if (value.length === 0) {
-		throw new Error('Sundial folder must not be empty.');
+		throw new Error(`Sundial ${key} must not be empty.`);
 	}
 
 	const portable = value.replace(/\\/g, '/');
 	const normalized = path.posix.normalize(portable);
-	if (path.isAbsolute(value) || path.posix.isAbsolute(portable) || normalized === '..' || normalized.startsWith('../')) {
-		throw new Error('Sundial folder must be a relative path inside the project root.');
+	if (path.isAbsolute(value) || path.win32.isAbsolute(value) || path.posix.isAbsolute(portable) || normalized === '..' || normalized.startsWith('../')) {
+		throw new Error(`Sundial ${key} must be a relative path inside the project root.`);
 	}
 
 	return normalized;
 }
 
-function defaultConfig(folder: string): string {
+function defaultConfig(paths: StorePaths): string {
 	return `${JSON.stringify({
 		version: 1,
-		store: storeDirectoryName,
-		folder,
+		store: formatRelative(paths.root, paths.store),
+		folder: paths.folder,
 	}, undefined, 2)}\n`;
 }
 
@@ -417,13 +422,13 @@ function createHarnessInstallContext(
 		async ensureSkillTemplates(input) {
 			const templateSet = await selectedSkillTemplateSet(input);
 			for (const asset of skillTemplateAssets(input.root, templateSet)) {
-				await ensureFile(path.join(paths.targetRoot, asset.relativePath), await renderTemplate(asset.templatePath), created, existing, paths.root);
+				await ensureFile(path.join(paths.targetRoot, asset.relativePath), await renderStoreTemplate(asset.templatePath, paths), created, existing, paths.root);
 			}
 		},
 		async updateSkillTemplates(input) {
 			const templateSet = await selectedSkillTemplateSet(input);
 			for (const asset of skillTemplateAssets(input.root, templateSet)) {
-				await updateFile(path.join(paths.targetRoot, asset.relativePath), await renderTemplate(asset.templatePath), created, existing, updated, paths.root);
+				await updateFile(path.join(paths.targetRoot, asset.relativePath), await renderStoreTemplate(asset.templatePath, paths), created, existing, updated, paths.root);
 			}
 		},
 	};
@@ -573,6 +578,15 @@ const templateIncludes: Readonly<Record<string, string>> = {
 
 export async function readSundialInstructions(): Promise<string> {
 	return (await renderTemplate('instructions/SUNDIAL-INSTRUCTIONS.md')).trim();
+}
+
+async function renderStoreTemplate(relativePath: string, paths: StorePaths): Promise<string> {
+	const store = formatRelative(paths.root, paths.store);
+	// Config stays at the discovery anchor; generated memory references follow the store.
+	return (await renderTemplate(relativePath)).replace(
+		/sundial\/(?=SUNDIAL-INSTRUCTIONS\.md|domains\.md|decisions\/|research\/|specs\/|templates\/|docs\/|sessions\/)/g,
+		() => `${store}/`,
+	);
 }
 
 async function renderTemplate(relativePath: string, seen: readonly string[] = []): Promise<string> {

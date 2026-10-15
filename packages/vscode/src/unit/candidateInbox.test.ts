@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { describe, test } from 'node:test';
 import {
 	discoverSundialRoot,
+	resolveStoreDirectory,
 	listCandidateSummaries,
 	listDecisionRecordSummaries,
 	listKnownDomains,
@@ -20,6 +21,56 @@ describe('listCandidateSummaries', () => {
 		const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sundial-vscode-empty-'));
 
 		assert.deepEqual(await listCandidateSummaries(root), []);
+	});
+
+	test('reads relocated records, domains and workflow without falling back to the anchor', async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sundial-vscode-moved-'));
+		const anchor = path.join(root, 'sundial');
+		const store = path.join(root, 'docs', 'memory');
+		await fs.mkdir(anchor);
+		await fs.writeFile(path.join(anchor, 'config.json'), JSON.stringify({ store: 'docs/memory', folder: 'unrelated' }));
+		const records = [
+			['decisions/candidates', 'CAND-0001', 'candidate'],
+			['decisions/accepted', 'DR-0001', 'accepted'],
+			['decisions/rejected', 'CAND-0002', 'rejected'],
+			['decisions/retired', 'DR-0002', 'retired'],
+			['research', 'RES-0001', ''],
+			['specs', 'SPEC-0001', 'Ready'],
+		];
+		for (const [directory, id, status] of records) {
+			await fs.mkdir(path.join(store, directory), { recursive: true });
+			await fs.writeFile(path.join(store, directory, `${id}.md`), `---\nid: ${id}\ntitle: Moved ${id}\nstatus: ${status}\n---\n`);
+		}
+		await fs.writeFile(path.join(store, 'domains.md'), '# Domains\n\n## Domains\n\n### project\nProject policy.\n');
+		await fs.writeFile(path.join(store, 'specs', 'workflow.yml'), 'statuses:\n  - name: Ready\n    kanban:\n      visible: true\n    sidebar:\n      visible: true\n');
+		const nested = path.join(store, 'specs');
+		assert.equal(await discoverSundialRoot(nested), root);
+		assert.equal(await resolveStoreDirectory(root), store);
+		assert.equal((await listCandidateSummaries(nested))[0].id, 'CAND-0001');
+		assert.equal((await listDecisionRecordSummaries(nested))[0].id, 'DR-0001');
+		assert.equal((await listDecisionRecordSummaries(nested, 'rejected'))[0].id, 'CAND-0002');
+		assert.equal((await listDecisionRecordSummaries(nested, 'retired'))[0].id, 'DR-0002');
+		assert.equal((await listResearchSummaries(nested))[0].id, 'RES-0001');
+		assert.equal((await listSpecSummaries(nested))[0].filePath, path.join(store, 'specs', 'SPEC-0001.md'));
+		assert.deepEqual(await listSpecLanes(nested), ['Ready']);
+		assert.deepEqual(await listKnownDomains(nested), ['project']);
+		await fs.writeFile(path.join(anchor, 'config.json'), JSON.stringify({ store: 'another-store' }));
+		assert.deepEqual(await listSpecSummaries(root), []);
+	});
+
+	test('rejects invalid store paths and preserves the legacy default', async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sundial-vscode-config-'));
+		const anchor = path.join(root, 'sundial');
+		await fs.mkdir(anchor);
+		assert.equal(await resolveStoreDirectory(root), anchor);
+		await fs.writeFile(path.join(anchor, 'config.json'), '{}');
+		assert.equal(await resolveStoreDirectory(root), anchor);
+		for (const store of [null, false, 3, {}, [], '', ' ', '../outside', 'docs/../../outside', '/outside', 'C:\\outside', '\\\\server\\share']) {
+			await fs.writeFile(path.join(anchor, 'config.json'), JSON.stringify({ store }));
+			await assert.rejects(resolveStoreDirectory(root), /Sundial (config )?store must/);
+		}
+		await fs.writeFile(path.join(anchor, 'config.json'), JSON.stringify({ store: 'docs\\memory' }));
+		assert.equal(await resolveStoreDirectory(root), path.join(root, 'docs', 'memory'));
 	});
 
 	test('reads candidate title, id, and path', async () => {

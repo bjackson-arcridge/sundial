@@ -6,12 +6,12 @@ domain: vscode.extension
 created: 2026-07-07
 references:
   - packages/vscode/src/extension.ts#governanceWatcher
-updated: 2026-07-07
+updated: 2026-10-14
 author: bjackson
 ---
 ## Decision
 
-VS Code governance sidebar providers should refresh when sundial/decisions markdown files are created, changed, or deleted, including changes made by external CLI commands.
+VS Code governance sidebar providers should refresh when decision markdown files in the configured store are created, changed, or deleted, including changes made by external CLI commands.
 
 ## Pitfalls
 

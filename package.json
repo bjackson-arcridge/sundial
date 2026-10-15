@@ -1,7 +1,7 @@
 {
   "name": "sundial-workspace",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Agentic workflows that focus on human in the loop.",
   "workspaces": [
     "packages/cli",

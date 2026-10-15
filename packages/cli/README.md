@@ -30,7 +30,7 @@ sundial init --root /path/to/project --claude --codex
 - `--claude` writes missing Claude Code skills to `.claude/skills/` from CLI templates.
 - `--codex` writes missing Codex skills to `.agents/skills/` from CLI templates.
 - Pass both flags to install both agent integrations.
-- Pass `--folder docs` to keep the store at `/path/to/project/sundial` while installing runtime assets under `/path/to/project/docs`.
+- Pass `--folder docs` to install runtime assets under `/path/to/project/docs` without changing the configured memory store.
 
 Refresh installed skill files later without rerunning store init:
 
@@ -38,7 +38,28 @@ Refresh installed skill files later without rerunning store init:
 sundial update --claude --codex
 ```
 
-The update command discovers the nearest ancestor `sundial` store by default; pass `--root /path/to/project` to target a specific project. Pass `--folder docs` to change the configured target folder, with or without runtime flags. It refreshes the canonical `sundial/SUNDIAL-INSTRUCTIONS.md`; selected harness updates also remove legacy Sundial-managed blocks from `AGENTS.md` or `.claude/CLAUDE.md` while preserving user-authored content.
+The update command discovers the nearest ancestor `sundial` configuration directory by default; pass `--root /path/to/project` to target a specific project. Pass `--folder docs` to change the configured target folder, with or without runtime flags. It refreshes `SUNDIAL-INSTRUCTIONS.md` in the configured store; selected harness updates also remove legacy Sundial-managed blocks from `AGENTS.md` or `.claude/CLAUDE.md` while preserving user-authored content.
+
+## Store location
+
+`sundial/config.json` stays at the project root as the discovery anchor. Its `store`
+field selects the memory directory, relative to the project root; omitting it
+preserves the default `sundial` directory. For example:
+
+```json
+{ "version": 1, "store": "docs", "folder": "." }
+```
+
+Decisions, research, specs, domains, templates, sessions, and store documentation
+are read and written under `docs/` in this example. `folder` independently selects
+where managed agent assets are installed; it does not change the memory location.
+Both paths must stay within the project root. Absolute and parent-escaping paths
+are rejected. `init` and `update` preserve the configured store.
+
+Changing `store` does not move or copy existing data. Move the memory directories
+and `SUNDIAL-INSTRUCTIONS.md` to the chosen location, leave `sundial/config.json`
+in place, and refresh generated agent assets with `sundial update --codex` and/or
+`--claude`. The extension follows the same setting, including after config edits.
 
 ## How it works
 
@@ -111,9 +132,9 @@ Notes:
 - Domain reads are sorted without rewriting the file. CLI-owned adds, updates, removals, and accepted candidate proposals rewrite the domain section in canonical lexical order.
 - Renaming or removing a domain is blocked while Decision Records or research notes reference it. The permanent `all` domain can only have its description updated.
 - `domains --json` returns the versioned domain, exact-reference-count, and filtered-suggestion contract used by editor adapters.
-- Candidate DRs can include a proposed domain with a description; accepting the DR adds that proposal to `sundial/domains.md`.
+- Candidate DRs can include a proposed domain with a description; accepting the DR adds that proposal to the store's `domains.md`.
 - DRs can include a `## Appendix` section for human-facing explanatory context; short and medium retrieval omit it.
-- New specs render the customizable body in `sundial/templates/spec.md`; it can use `{{id}}`, `{{title}}`, `{{status}}`, `{{created}}`, `{{updated}}`, and `{{created_by}}`.
+- New specs render the customizable body in the store's `templates/spec.md`; it can use `{{id}}`, `{{title}}`, `{{status}}`, `{{created}}`, `{{updated}}`, and `{{created_by}}`.
 - Managed spec worktrees use `.sundial-worktrees/<spec-file-basename>` below the primary checkout. Creation and finish are guarded by current topology and Git state; `--json` returns the versioned contract used by the VS Code extension.
 
 ## VS Code

@@ -3,7 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, test } from 'node:test';
-import { countDecisionRecords, discoverStore, initStore, updateRuntimeAssets } from '../core/store';
+import { countDecisionRecords, discoverStore, initStore, loadStorePaths, updateRuntimeAssets } from '../core/store';
 
 describe('store bootstrap', () => {
 	test('creates the store layout idempotently without runtime assets by default', async () => {
@@ -226,6 +226,46 @@ describe('store bootstrap', () => {
 		assert.match(await fs.readFile(path.join(root, 'sundial', 'SUNDIAL-INSTRUCTIONS.md'), 'utf8'), /sundial candidate create/);
 		await assert.rejects(fs.access(path.join(root, 'docs', 'AGENTS.md')));
 		await assert.rejects(fs.access(path.join(root, 'AGENTS.md')));
+	});
+
+	test('uses the configured memory store independently of the runtime folder', async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sundial-relocated-'));
+		await fs.mkdir(path.join(root, 'sundial'));
+		const configPath = path.join(root, 'sundial', 'config.json');
+		await fs.writeFile(configPath, JSON.stringify({ version: 1, store: 'docs/memory', folder: 'app', custom: true }));
+		const result = await initStore(root, { codex: true });
+		assert.equal(result.paths.store, path.join(root, 'docs', 'memory'));
+		assert.equal(result.paths.config, configPath);
+		assert.equal(result.paths.targetRoot, path.join(root, 'app'));
+		assert.equal((await discoverStore(path.join(root, 'docs', 'memory', 'specs')))?.root, root);
+		await fs.access(path.join(result.paths.store, 'decisions', 'accepted'));
+		await fs.access(path.join(result.paths.store, 'research'));
+		await fs.access(path.join(result.paths.store, 'specs', 'workflow.yml'));
+		const skill = await fs.readFile(path.join(root, 'app', '.agents', 'skills', 'decision-aware-design', 'SKILL.md'), 'utf8');
+		assert.match(skill, /docs\/memory\/SUNDIAL-INSTRUCTIONS.md/);
+		assert.match(skill, /docs\/memory\/research\//);
+		await fs.writeFile(path.join(result.paths.store, 'templates', 'spec.md'), '# Custom {{title}}\n');
+		await updateRuntimeAssets(root, { codex: true, folder: 'other-app' });
+		assert.deepEqual(JSON.parse(await fs.readFile(configPath, 'utf8')), { version: 1, store: 'docs/memory', folder: 'other-app', custom: true });
+		assert.equal(await fs.readFile(path.join(result.paths.store, 'templates', 'spec.md'), 'utf8'), '# Custom {{title}}\n');
+		await fs.access(path.join(root, 'other-app', '.agents', 'skills', 'remember-research', 'SKILL.md'));
+		await assert.rejects(fs.access(path.join(root, 'sundial', 'decisions')));
+		await assert.rejects(fs.access(path.join(root, 'docs', 'memory', 'config.json')));
+	});
+
+	test('defaults legacy configs and validates store paths before writing', async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sundial-store-config-'));
+		await fs.mkdir(path.join(root, 'sundial'));
+		const configPath = path.join(root, 'sundial', 'config.json');
+		await fs.writeFile(configPath, JSON.stringify({ version: 1, folder: '.' }));
+		assert.equal((await loadStorePaths(root)).store, path.join(root, 'sundial'));
+		for (const store of [null, false, 3, {}, [], '', ' ', '../outside', 'docs/../../outside', '/outside', 'C:\\outside', '\\\\server\\share']) {
+			await fs.writeFile(configPath, JSON.stringify({ store }));
+			await assert.rejects(initStore(root), /Sundial (config )?store must/);
+		}
+		await fs.writeFile(configPath, JSON.stringify({ store: 'docs\\memory' }));
+		assert.equal((await loadStorePaths(root)).store, path.join(root, 'docs', 'memory'));
+		assert.deepEqual(await fs.readdir(root), ['sundial']);
 	});
 
 	test('can bootstrap Claude Code and Codex assets together', async () => {

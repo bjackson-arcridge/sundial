@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import * as vscode from 'vscode';
 import {
 	discoverSundialRoot,
+	resolveStoreDirectory,
 	listCandidateSummaries,
 	listDecisionRecordSummaries,
 	listKnownDomains,
@@ -537,25 +538,55 @@ export function activate(context: vscode.ExtensionContext): void {
 	context.subscriptions.push(vscode.window.registerWebviewViewProvider('sundial.main', mainSidebarProvider));
 	context.subscriptions.push(mainSidebarProvider);
 	context.subscriptions.push(specsBoardPanel);
-	const governanceWatcher = vscode.workspace.createFileSystemWatcher('**/sundial/{decisions,research,specs}/**/*.{md,yml,yaml}');
-	const domainsWatcher = vscode.workspace.createFileSystemWatcher('**/sundial/domains.md');
-	context.subscriptions.push(
-		governanceWatcher,
-		domainsWatcher,
-		governanceWatcher.onDidCreate(scheduleGovernanceRefresh),
-		governanceWatcher.onDidChange(scheduleGovernanceRefresh),
-		governanceWatcher.onDidDelete(scheduleGovernanceRefresh),
-		domainsWatcher.onDidCreate(scheduleGovernanceRefresh),
-		domainsWatcher.onDidChange(scheduleGovernanceRefresh),
-		domainsWatcher.onDidDelete(scheduleGovernanceRefresh),
+	let storeWatchers: vscode.Disposable[] = [];
+	let watcherRevision = 0;
+	let watchersDisposed = false;
+	const configureStoreWatchers = async (): Promise<void> => {
+		const revision = ++watcherRevision;
+		const stores = await collectWorkspaceStores();
+		const directories = await Promise.all(stores.map(store => resolveStoreDirectory(store.root)));
+		if (watchersDisposed || revision !== watcherRevision) {
+			return;
+		}
+		storeWatchers.forEach(watcher => watcher.dispose());
+		storeWatchers = [];
+		for (const directory of directories) {
+			for (const pattern of ['{decisions,research,specs}/**/*.{md,yml,yaml}', 'domains.md']) {
+				const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(directory, pattern));
+				storeWatchers.push(watcher,
+					watcher.onDidCreate(scheduleGovernanceRefresh),
+					watcher.onDidChange(scheduleGovernanceRefresh),
+					watcher.onDidDelete(scheduleGovernanceRefresh));
+			}
+		}
+		// Also watch anchors above a nested workspace folder.
+		for (const store of stores) {
+			const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(store.root, 'sundial/config.json'));
+			storeWatchers.push(watcher,
+				watcher.onDidCreate(onStoreConfigChange),
+				watcher.onDidChange(onStoreConfigChange),
+				watcher.onDidDelete(onStoreConfigChange));
+		}
+	};
+	const onStoreConfigChange = (): void => {
+		void configureStoreWatchers().then(scheduleGovernanceRefresh).catch(showCommandError);
+	};
+	const configWatcher = vscode.workspace.createFileSystemWatcher('**/sundial/config.json');
+	context.subscriptions.push(configWatcher,
+		configWatcher.onDidCreate(onStoreConfigChange),
+		configWatcher.onDidChange(onStoreConfigChange),
+		configWatcher.onDidDelete(onStoreConfigChange),
 		{
 			dispose: () => {
+				watchersDisposed = true;
+				storeWatchers.forEach(watcher => watcher.dispose());
 				if (governanceRefreshTimer !== undefined) {
 					clearTimeout(governanceRefreshTimer);
 				}
 			},
 		},
 	);
+	onStoreConfigChange();
 
 	context.subscriptions.push(vscode.commands.registerCommand('sundial.installCli', () => installCli(welcomeProvider)));
 	context.subscriptions.push(vscode.commands.registerCommand('sundial.domains.focus', () => focusSidebarSection('domains')));
@@ -710,6 +741,7 @@ export function activate(context: vscode.ExtensionContext): void {
 		));
 	}
 	context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+		onStoreConfigChange();
 		void candidatesProvider.refresh();
 		void domainsProvider.refresh();
 		void recordsProvider.refresh();
@@ -1300,13 +1332,13 @@ async function openSpecTemplate(workspace?: string): Promise<void> {
 		return;
 	}
 
-	const templatePath = path.join(root, 'sundial', 'templates', 'spec.md');
 	try {
+		const templatePath = path.join(await resolveStoreDirectory(root), 'templates', 'spec.md');
 		if (!await fileExists(templatePath)) {
 			await runSundial(root, sundialCliSpecTemplateArgs());
 		}
 		if (!await fileExists(templatePath)) {
-			throw new Error('The Sundial CLI did not create sundial/templates/spec.md. Update the CLI and try again.');
+			throw new Error(`The Sundial CLI did not create ${templatePath}. Update the CLI and try again.`);
 		}
 		await openMarkdownSource(templatePath);
 	} catch (error) {

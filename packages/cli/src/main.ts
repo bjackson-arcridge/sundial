@@ -90,7 +90,7 @@ Commands:
   init        Create or update the project-local sundial store at an explicit root
   update      Update installed files for the discovered or explicit project root
   status      Report store health, counts, and validation state
-  domains     List, add, update, or remove domains in sundial/domains.md
+  domains     List, add, update, or remove domains in the configured store
   dr retrieve Retrieve visible accepted DRs by relevant domains
   dr get      Cat DR markdown files by id
   dr list     List DRs by status

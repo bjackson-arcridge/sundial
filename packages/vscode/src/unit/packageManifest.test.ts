@@ -35,7 +35,7 @@ describe('package manifest contributions', () => {
 		const views = manifest.contributes?.views?.sundial ?? [];
 		const initializedViews = views.filter(view => view.when === 'sundial.workspaceInitialized');
 
-		assert.equal(manifest.version, '0.8.0');
+		assert.equal(manifest.version, '0.8.1');
 		assert.deepEqual(initializedViews, [{
 			id: 'sundial.main',
 			name: 'Sundial',
@@ -109,7 +109,7 @@ describe('package manifest contributions', () => {
 		assert.match(source, /if \(message\.kind === 'worktreeAction'\) {\s*await handleSpecWorktreeAction\(message\.action, message\.id, message\.workspace, specsProvider, specsBoardPanel\);/);
 		assert.match(source, /if \(message\.kind === 'createSpec'\) {\s*await createSpec\(message\.title, message\.status, message\.workspace, specsProvider, specsBoardPanel\);/);
 		assert.match(source, /if \(message\.kind === 'openSpecTemplate'\) {\s*await openSpecTemplate\(message\.workspace\);/);
-		assert.match(source, /const templatePath = path\.join\(root, 'sundial', 'templates', 'spec\.md'\);/);
+		assert.match(source, /const templatePath = path\.join\(await resolveStoreDirectory\(root\), 'templates', 'spec\.md'\);/);
 		assert.match(source, /await runSundial\(root, sundialCliSpecTemplateArgs\(\)\);/);
 		assert.match(source, /await openMarkdownSource\(templatePath\);/);
 		assert.match(source, /if \(message\.kind === 'deleteSpec'\) {\s*await deleteSpec\(message\.id, message\.workspace, specsProvider, specsBoardPanel, message\.skipConfirmation === true\);/);
@@ -144,7 +144,7 @@ describe('package manifest contributions', () => {
 	test('refreshes specs views when spec markdown or workflow files change', () => {
 		const source = readExtensionSource();
 
-		assert.match(source, /createFileSystemWatcher\('\*\*\/sundial\/\{decisions,research,specs\}\/\*\*\/\*\.\{md,yml,yaml\}'\)/);
+		assert.match(source, /createFileSystemWatcher\(new vscode\.RelativePattern\(directory, pattern\)\)/);
 		assert.match(source, /await refreshGovernanceViews\(welcomeProvider, candidatesProvider, recordsProvider, rejectedRecordsProvider, retiredRecordsProvider, researchProvider, specsProvider\);/);
 		assert.match(source, /await specsBoardPanel\.refresh\(\);/);
 	});

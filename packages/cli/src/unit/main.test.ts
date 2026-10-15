@@ -14,7 +14,7 @@ describe('CLI main', () => {
 
 		const result = await runCli(root, ['--version']);
 
-		assert.equal(packageJson.version, '0.8.1');
+		assert.equal(packageJson.version, '0.8.2');
 		assert.equal(result.stdout, `${packageJson.version}\n`);
 		assert.equal(result.stderr, '');
 		assert.equal(result.exitCode, undefined);
@@ -54,6 +54,35 @@ describe('CLI main', () => {
 		const esbuildScript = await fs.readFile(path.resolve(__dirname, '../../esbuild.js'), 'utf8');
 
 		assert.match(esbuildScript, /fs\.chmod\(path\.join\('dist', 'main\.js'\), 0o755\)/);
+	});
+
+	test('runs decision and spec lifecycles in a relocated store from nested cwd and explicit root', async () => {
+		const root = await fs.mkdtemp(path.join(os.tmpdir(), 'sundial-moved-cli-'));
+		await fs.mkdir(path.join(root, 'sundial'));
+		await fs.writeFile(path.join(root, 'sundial', 'config.json'), JSON.stringify({ version: 1, store: 'docs' }));
+		const init = await initStore(root);
+		await fs.writeFile(path.join(root, 'docs', 'templates', 'spec.md'), '# {{title}}\n\nCustom relocated template.\n');
+		const nested = path.join(root, 'docs', 'specs');
+		for (const args of [
+			['candidate', 'create', '--title', 'Moved decision', '--domain', 'all', '--decision', 'Use the configured memory store.'],
+			['candidate', 'accept', 'CAND-0001'],
+			['spec', 'create', '--title', 'Moved spec'],
+			['spec', 'status', 'SPEC-0001', 'Active'],
+		]) {
+			const result = await runCli(nested, args);
+			assert.equal(result.stderr, '', JSON.stringify(args));
+			assert.equal(result.exitCode, undefined, JSON.stringify(args));
+		}
+		assert.match((await runCli(nested, ['dr', 'retrieve', '--domain', 'all'])).stdout, /Use the configured memory store/);
+		assert.match((await runCli(nested, ['spec', 'show', 'SPEC-0001'])).stdout, /Custom relocated template/);
+		const status = await runCli(path.dirname(root), ['--cwd', root, 'status']);
+		assert.equal(status.stderr, '');
+		assert.match(status.stdout, new RegExp(init.paths.store));
+		const updated = await runCli(path.dirname(root), ['update', '--root', root, '--folder', 'app']);
+		assert.equal(updated.stderr, '');
+		assert.equal(JSON.parse(await fs.readFile(init.paths.config, 'utf8')).store, 'docs');
+		await fs.access(path.join(root, 'docs', 'decisions', 'accepted', 'DR-0001-moved-decision.md'));
+		await assert.rejects(fs.access(path.join(root, 'sundial', 'decisions')));
 	});
 
 	test('retrieves accepted DRs by hierarchical domain', async () => {

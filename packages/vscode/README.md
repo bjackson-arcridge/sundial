@@ -87,3 +87,7 @@ Sundial contributes these user-facing commands:
 - `Sundial: Reject Candidate`
 - `Sundial: Retire Candidate`
 - `Sundial: Dismiss Candidate`
+
+## Configured store
+
+The extension reads `store` from the project's `sundial/config.json` (default: `sundial`). It uses that directory for decisions, research, specs, domains, workflow, and templates, and follows config changes without reloading. The config remains at `sundial/config.json`; `folder` only controls agent asset installation.

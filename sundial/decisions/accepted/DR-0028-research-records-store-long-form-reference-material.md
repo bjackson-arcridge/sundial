@@ -6,12 +6,12 @@ domain: governance.dr-retrieval
 created: 2026-07-07
 references:
   - sundial/research
-updated: 2026-07-07
+updated: 2026-10-14
 author: bjackson
 ---
 ## Decision
 
-Store research as non-governing Markdown reference records under sundial/research with shared domains and a short summary for list views; agents must explicitly open the research file before relying on long-form details.
+Store research as non-governing Markdown reference records under research/ in the configured store with shared domains and a short summary for list views; agents must explicitly open the research file before relying on long-form details.
 
 ## Pitfalls
 

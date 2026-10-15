@@ -226,6 +226,47 @@ suite('Scenario: records-and-candidates', () => {
 		await waitForReturnedRecordsViewCount(expectedAcceptedRecordCount);
 		await waitForReturnedRetiredRecordsViewCount(expectedRetiredRecordCount);
 	});
+
+	test('follows a relocated store and refreshes external changes at the new location', async () => {
+		await useLocalSundialCli();
+		await activateExtension();
+		const before = await waitForWebviewDiagnostics();
+		const root = workspaceRoot();
+		const anchor = path.join(root, 'sundial');
+		const moved = path.join(root, 'docs', 'memory');
+		const configPath = path.join(anchor, 'config.json');
+		const config = await fs.readFile(configPath, 'utf8').catch(error => {
+			if (error.code === 'ENOENT') { return undefined; }
+			throw error;
+		});
+		await fs.mkdir(path.dirname(moved), { recursive: true });
+		await fs.rename(anchor, moved);
+		await fs.mkdir(anchor);
+		await fs.writeFile(configPath, JSON.stringify({ ...JSON.parse(config ?? '{}'), store: 'docs/memory' }));
+		try {
+			// An extra moved record proves the config watcher refreshed the sidebar.
+			const added = path.join(moved, 'decisions', 'candidates', 'CAND-9000-relocated.md');
+			await fs.writeFile(added, '---\nid: CAND-9000\ntitle: Relocated watcher\nstatus: candidate\ndomain: all\n---\n\n## Decision\n\nFixture.\n');
+			await waitForGovernanceCounts({ acceptedRecordCount: before.acceptedRecordCount, activeCandidateCount: before.activeCandidateCount + 1, rejectedRecordCount: before.rejectedRecordCount });
+			await execFileAsync(localSundialCliPath(), ['--cwd', root, 'candidate', 'dismiss', 'CAND-9000'], { cwd: root });
+			await waitForGovernanceCounts({ acceptedRecordCount: before.acceptedRecordCount, activeCandidateCount: before.activeCandidateCount, rejectedRecordCount: before.rejectedRecordCount });
+			await vscode.commands.executeCommand('sundial.specs.customizeTemplate');
+			await waitForActiveTextDocument(path.join(moved, 'templates', 'spec.md'));
+			await focusSpecsView();
+			await vscode.commands.executeCommand('sundial.internal.specs.create', 'Relocated spec');
+			const created = await waitForSpecByTitle('Relocated spec', 10000, path.join(moved, 'specs'));
+			assert.equal(path.dirname(created.filePath), path.join(moved, 'specs'));
+			await vscode.commands.executeCommand('sundial.internal.specs.delete', created.id);
+			await waitForSpecDeleted(created.filePath);
+		} finally {
+			await fs.rm(anchor, { recursive: true, force: true });
+			await fs.rename(moved, anchor);
+			if (config !== undefined) {
+				await fs.writeFile(configPath, config);
+			}
+		}
+	});
+
 });
 
 function getInitializedSidebarViewIds(): string[] {
@@ -267,12 +308,11 @@ interface SpecFile {
 	readonly filePath: string;
 }
 
-async function waitForSpecByTitle(title: string, timeoutMs = 10000): Promise<SpecFile> {
+async function waitForSpecByTitle(title: string, timeoutMs = 10000, specsDir = path.join(workspaceRoot(), 'sundial', 'specs')): Promise<SpecFile> {
 	const started = Date.now();
 	let lastFiles: readonly string[] = [];
 
 	while (Date.now() - started < timeoutMs) {
-		const specsDir = path.join(workspaceRoot(), 'sundial', 'specs');
 		const files = (await fs.readdir(specsDir)).filter(file => /^SPEC-\d+-.+\.md$/.test(file));
 		lastFiles = files;
 		for (const file of files) {
